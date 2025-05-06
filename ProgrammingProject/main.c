@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include "recipe.h"
 
 void header()
@@ -10,13 +11,13 @@ void header()
     printf("|1 - Display Recipes|\n");
     printf("|2 - Add Recipes    |\n");
     printf("|3 - Edit Recipes   |\n");
+    printf("|4 - Delete Recipes |\n");
     printf("|0 - Exit           |\n");
     printf("---------------------\n\n");
 }
 
 void display(char path[])
 {
-    char a;
     system("cls");
     FILE *filePointer = fopen(path, "r");
 
@@ -27,49 +28,68 @@ void display(char path[])
     if (filePointer == NULL)
     {
         printf("The file cannot be accessed.\n");
+        return;
     }
-    else
-    {
-        char line[256];
-        while (fgets(line, sizeof(line), filePointer))
-        {
-            line[strcspn(line, "\n")] = '\0';
 
-            if (strchr(line, ':'))
+    char search[100];
+    printf("Enter search term (or leave empty to show all): ");
+    getchar(); // clear newline
+    fgets(search, sizeof(search), stdin);
+    search[strcspn(search, "\n")] = '\0';
+
+    for (int i = 0; search[i]; i++)
+        search[i] = tolower(search[i]);
+
+    char line[256];
+    int print = 0;
+    int matched = 0;
+
+    while (fgets(line, sizeof(line), filePointer))
+    {
+        line[strcspn(line, "\n")] = '\0';
+
+        if (strchr(line, ':'))
+        {
+            char lowered[256];
+            strcpy(lowered, line);
+            for (int i = 0; lowered[i]; i++)
+                lowered[i] = tolower(lowered[i]);
+
+            if (strlen(search) == 0 || strstr(lowered, search))
             {
+                print = 1;
+                matched = 1;
                 printf("\033[96m%s\033[0m\n", line);
             }
-            else if (strstr(line, "-"))
+            else
             {
-
-                char originalLine[256];
-                strcpy(originalLine, line);
-
-                char *start = strstr(originalLine, "-");
-                if (!start)
-                {
-                    printf("%s\n", line);
-                    continue;
-                }
+                print = 0;
+            }
+        }
+        else if (print)
+        {
+            if (strstr(line, "-"))
+            {
+                char *start = strstr(line, "-");
                 start++;
+                int prefixLength = start - line;
+                char prefix[256];
+                strncpy(prefix, line, prefixLength);
+                prefix[prefixLength] = '\0';
 
-                char *tokens[50];
-                int count = 0;
                 char temp[256];
                 strcpy(temp, start);
                 char *token = strtok(temp, " ");
+                char *tokens[50];
+                int count = 0;
+
                 while (token != NULL && count < 50)
                 {
                     tokens[count++] = token;
                     token = strtok(NULL, " ");
                 }
 
-                int prefixLength = start - originalLine;
-                char prefix[256];
-                strncpy(prefix, originalLine, prefixLength);
-                prefix[prefixLength] = '\0';
                 printf("%s-", prefix);
-
                 for (int i = 0; i < count; i++)
                 {
                     if (i == count - 1)
@@ -84,12 +104,14 @@ void display(char path[])
                 printf("%s\n", line);
             }
         }
-        fclose(filePointer);
     }
 
+    if (!matched)
+        printf("No matching recipes found.\n");
+
+    fclose(filePointer);
     printf("\nPress Enter to go back...");
     getchar();
-    scanf("%c", &a);
     system("cls");
 }
 
@@ -281,6 +303,123 @@ void edit(const char *path)
     system("cls");
 }
 
+void delete_recipe(const char *path)
+{
+    system("cls");
+    printf("---------------------\n");
+    printf("     Recipe Deleter  \n");
+    printf("---------------------\n\n");
+
+    FILE *file = fopen(path, "r");
+    if (!file)
+    {
+        printf("Failed to open file.\n");
+        return;
+    }
+
+    Recipe recipes[100];
+    int recipeCount = 0;
+    char line[256];
+
+    // Load recipes
+    while (fgets(line, sizeof(line), file))
+    {
+        if (strchr(line, ':'))
+        {
+            line[strcspn(line, "\n")] = '\0';
+            strcpy(recipes[recipeCount].name, line);
+        }
+        else if (strstr(line, "Ingredients"))
+        {
+            sscanf(line, "%d", &recipes[recipeCount].ingredientCount);
+            for (int i = 0; i < recipes[recipeCount].ingredientCount; i++)
+            {
+                fgets(line, sizeof(line), file);
+                line[strcspn(line, "\n")] = '\0';
+                char *start = strstr(line, "-");
+                if (start)
+                {
+                    start++;
+                    while (*start == ' ')
+                        start++;
+                    strcpy(recipes[recipeCount].ingredients[i], start);
+                }
+            }
+            recipeCount++;
+        }
+    }
+    fclose(file);
+
+    if (recipeCount == 0)
+    {
+        printf("No recipes found.\n");
+        printf("\nPress Enter to return to menu...");
+        getchar();
+
+        return;
+    }
+
+    // Display list
+    for (int i = 0; i < recipeCount; i++)
+    {
+        printf("%d. %s\n", i + 1, recipes[i].name);
+    }
+
+    // Choose which to delete
+    int choice;
+    printf("\nEnter recipe number to delete: ");
+    while (scanf("%d", &choice) != 1 || choice < 1 || choice > recipeCount)
+    {
+        printf("Invalid input. Try again: ");
+        while (getchar() != '\n')
+            ;
+    }
+    while (getchar() != '\n')
+        ;
+
+    // Confirm deletion
+    printf("Are you sure you want to delete \"%s\"? (y/n): ", recipes[choice - 1].name);
+    char confirm = getchar();
+    while (getchar() != '\n')
+        ; // clear input buffer
+
+    if (confirm != 'y' && confirm != 'Y')
+    {
+        printf("Deletion cancelled.\n");
+        printf("Press Enter to return to menu...");
+        getchar();
+        system("cls");
+        return;
+    }
+
+    // Rewrite file excluding selected recipe
+    file = fopen(path, "w");
+    if (!file)
+    {
+        printf("Failed to open file for writing.\n");
+        return;
+    }
+
+    for (int i = 0; i < recipeCount; i++)
+    {
+        if (i == choice - 1)
+            continue;
+        fprintf(file, "%s\n", recipes[i].name);
+        fprintf(file, "%d Ingredients\n", recipes[i].ingredientCount);
+        for (int j = 0; j < recipes[i].ingredientCount; j++)
+        {
+            fprintf(file, "      -%s\n", recipes[i].ingredients[j]);
+        }
+        fprintf(file, "\n");
+    }
+
+    fclose(file);
+    printf("\nRecipe deleted successfully!\n");
+    printf("Press Enter to return to menu...");
+    getchar();
+    system("cls");
+}
+
 void menu(int op, char path[])
 {
     switch (op)
@@ -293,6 +432,9 @@ void menu(int op, char path[])
         break;
     case 3:
         edit(path);
+        break;
+    case 4:
+        delete_recipe(path);
         break;
     default:
         system("cls");
@@ -319,7 +461,7 @@ int main()
         }
 
         menu(option, path);
-    } while (option > 0 && option <= 3);
+    } while (option > 0 && option <= 4);
 
     return 0;
 }
